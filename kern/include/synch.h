@@ -3,6 +3,7 @@
  */
 
 #ifndef _SYNCH_H_
+#include <queue.h> //global thread variable
 #define _SYNCH_H_
 
 /*
@@ -17,6 +18,8 @@
  * The name field is for easier debugging. A copy of the name is made
  * internally.
  */
+
+extern struct thread *curthread; //external
 
 struct semaphore {
 	char *name;
@@ -51,6 +54,8 @@ void              sem_destroy(struct semaphore *);
 struct lock {
 	char *name;
 	// add what you need here
+	volatile int lock_occupied;
+	volatile struct thread *lock_holder;
 	// (don't forget to mark things volatile as needed)
 };
 
@@ -89,6 +94,8 @@ void         lock_destroy(struct lock *);
 
 struct cv {
 	char *name;
+	int count;
+	struct queue *thread_queue;
 	// add what you need here
 	// (don't forget to mark things volatile as needed)
 };

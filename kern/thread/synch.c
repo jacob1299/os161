@@ -7,6 +7,7 @@
 #include <lib.h>
 #include <synch.h>
 #include <thread.h>
+#include <queue.h>
 #include <curthread.h>
 #include <machine/spl.h>
 
@@ -17,7 +18,9 @@
 struct semaphore *
 sem_create(const char *namearg, int initial_count)
 {
-	struct semaphore *sem;
+	struct semaphore *sem;	
+
+	assert(initial_count >= 0)
 
 	sem = kmalloc(sizeof(struct semaphore));
 	if (sem == NULL) {
@@ -113,6 +116,8 @@ lock_create(const char *name)
 	}
 	
 	// add stuff here as needed
+	lock->lock_occupied = 0;
+	lock->lock_holder = NULL;
 	
 	return lock;
 }
@@ -126,32 +131,57 @@ lock_destroy(struct lock *lock)
 	
 	kfree(lock->name);
 	kfree(lock);
+	lock = NULL;
 }
 
 void
 lock_acquire(struct lock *lock)
 {
 	// Write this
+	int spl;
+	assert(lock != NULL);
+	assert(in_interrupt==0);
 
-	(void)lock;  // suppress warning until code gets written
+	spl = splhigh();
+	assert(!lock_do_i_hold(lock));
+	while (lock->lock_occupied == 1 && lock->lock_holder != curthread) {
+		thread_sleep(lock);
+	}
+	
+	lock->lock_occupied = 1;
+	lock->lock_holder = curthread;
+	splx(spl);
+
+	//(void)lock;  // suppress warning until code gets written
 }
 
 void
 lock_release(struct lock *lock)
 {
 	// Write this
+	assert(lock != NULL);
+	assert(lock->lock_holder);
+	assert(lock_do_i_hold(lock));
 
-	(void)lock;  // suppress warning until code gets written
+	int spl;
+	spl = splhigh();
+	lock->lock_occupied = 0;
+	lock->lock_holder = NULL;
+	thread_wakeup(lock);
+	splx(spl);
+	//(void)lock;  // suppress warning until code gets written
 }
 
 int
 lock_do_i_hold(struct lock *lock)
 {
 	// Write this
+	assert(lock != NULL);
 
-	(void)lock;  // suppress warning until code gets written
+	return (lock->lock_holder == curthread);
+	//(void)lock;  // suppress warning until code gets written
 
-	return 1;    // dummy until code gets written
+	//return 1;    // dummy until code gets written
 }
 
 ////////////////////////////////////////////////////////////
@@ -176,6 +206,9 @@ cv_create(const char *name)
 	}
 	
 	// add stuff here as needed
+	cv->count=0;
+
+	cv->thread_queue = q_create(1);
 	
 	return cv;
 }
@@ -186,31 +219,63 @@ cv_destroy(struct cv *cv)
 	assert(cv != NULL);
 
 	// add stuff here as needed
+	assert(cv->count == 0);
+	assert(q_empty(cv->thread_queue));
+
+	q_destroy(cv->thread_queue);
 	
 	kfree(cv->name);
 	kfree(cv);
+
+	cv = NULL;
 }
 
 void
 cv_wait(struct cv *cv, struct lock *lock)
 {
 	// Write this
-	(void)cv;    // suppress warning until code gets written
-	(void)lock;  // suppress warning until code gets written
+	int spl;
+
+	spl = splhigh();
+	lock_release(lock);
+	cv->count++;
+	q_preallocate(cv->thread_queue,cv->count);
+	q_addtail(cv->thread_queue, curthread);
+	thread_sleep(curthread);
+	lock_acquire(lock);
+	splx(spl);
+	//(void)cv;    // suppress warning until code gets written
+	//(void)lock;  // suppress warning until code gets written
 }
 
 void
 cv_signal(struct cv *cv, struct lock *lock)
 {
 	// Write this
-	(void)cv;    // suppress warning until code gets written
-	(void)lock;  // suppress warning until code gets written
+	int spl = splhigh();
+	cv->count--;
+
+	struct thread *next_thread = q_remhead(cv->thread_queue);
+
+	thread_wakeup(next_thread);
+	splx(spl);
+
+	//(void)cv;    // suppress warning until code gets written
+	//(void)lock;  // suppress warning until code gets written
 }
 
 void
 cv_broadcast(struct cv *cv, struct lock *lock)
 {
 	// Write this
-	(void)cv;    // suppress warning until code gets written
-	(void)lock;  // suppress warning until code gets written
+	while(cv->count > 0) {
+		cv_signal(cv, lock);
+} 
+	assert(cv->count == 0);
+	assert(q_empty(cv->thread_queue));
+
 }
+
+
+	//(void)cv;    // suppress warning until code gets written
+	//(void)lock;  // suppress warning until code gets written}
